@@ -574,20 +574,28 @@ class CliTest extends BaseApplicationTestCase
 
         Configuration::addPath(__DIR__.'/fixtures/Parked/Sites');
 
-        $dummySubdir = getcwd().'/my-best-site';
-        if (! file_exists($dummySubdir)) {
-            mkdir($dummySubdir);
-        }
+        // A directory in the working directory that shadows the registered site's
+        // name, with contents that would select a different driver.
+        $shadowPath = __DIR__.'/output/shadow-'.uniqid();
+        mkdir($shadowPath.'/my-best-site/public', 0755, true);
+        touch($shadowPath.'/my-best-site/public/index.php');
+
+        $originalCwd = getcwd();
+        chdir($shadowPath);
 
         try {
             $tester->run(['command' => 'which', 'site' => 'my-best-site']);
             $tester->assertCommandIsSuccessful();
 
-            $this->assertStringContainsString('The [my-best-site] site is served by [', $tester->getDisplay());
+            // The registered site is a plain directory, so resolving it gives the
+            // basic driver; the shadowing directory would have given the public one.
+            $this->assertStringContainsString(
+                'The [my-best-site] site is served by [Valet\Drivers\BasicValetDriver]',
+                $tester->getDisplay()
+            );
         } finally {
-            if (file_exists($dummySubdir)) {
-                rmdir($dummySubdir);
-            }
+            chdir($originalCwd);
+            exec('rm -rf '.escapeshellarg($shadowPath));
         }
     }
 

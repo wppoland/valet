@@ -171,7 +171,7 @@ class Site
         $tld = $this->config->read()['tld'];
         $name = $this->normalizeSiteName($directory);
 
-        if (! $this->getSitePath($name)) {
+        if (! $this->resolveSitePath($name)) {
             throw new DomainException("The [{$name}] site could not be found in Valet's site list.");
         }
 
@@ -201,34 +201,45 @@ class Site
      */
     public function getSitePath(string $siteName): ?string
     {
-        $siteName = $this->normalizeSiteName($siteName);
+        return $this->resolveSitePath($this->normalizeSiteName($siteName));
+    }
 
-        // 1. Check linked sites in ~/.config/valet/Sites
-        $linkPath = $this->sitesPath().'/'.$siteName;
-        if ($this->files->isLink($linkPath)) {
-            return $this->files->realpath($this->files->readLink($linkPath));
+    /**
+     * Resolve an already-normalized site name to its directory.
+     */
+    protected function resolveSitePath(string $siteName): ?string
+    {
+        if ($siteName === '' || $siteName === '.' || $siteName === '..' || str_contains($siteName, '/')) {
+            return null;
         }
 
-        if ($this->files->isDir($linkPath)) {
+        // 1. Check linked sites in ~/.config/valet/Sites
+        $linkPath = $this->sitesPath($siteName);
+
+        if ($this->files->isLink($linkPath)) {
+            $target = $this->files->readLink($linkPath);
+
+            if ($this->files->isDir($target)) {
+                return $this->files->realpath($target);
+            }
+        } elseif ($this->files->isDir($linkPath)) {
             return $this->files->realpath($linkPath);
         }
 
-        // 2. Check parked paths
-        $config = $this->config->read();
-        foreach (array_reverse($config['paths']) as $path) {
+        // 2. Check parked paths, in the same order the server resolves them
+        foreach ($this->config->read()['paths'] as $path) {
             if ($path === $this->sitesPath()) {
                 continue;
             }
 
             $candidate = $path.'/'.$siteName;
+
             if ($this->files->isDir($candidate)) {
                 return $this->files->realpath($candidate);
             }
         }
 
-        $site = $this->parked()->merge($this->links())->where('site', $siteName)->first();
-
-        return data_get($site, 'path');
+        return null;
     }
 
     /**
